@@ -225,28 +225,20 @@ function woocommerce_oxipay_init() {
 			</table> <?php
 		}
 
-
-
-		function payment_finalisation($order_id)
+		function update_orderstatus($params, $iscallback)
 		{
-			$order = wc_get_order($order_id);
-			$cart = WC()->session->get('cart', null);
-			$full_url = "http://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]";
-			$parts = parse_url($full_url, PHP_URL_QUERY);
-			parse_str($parts, $params);
 			ksort($params);
-
+			$order = null;
+			$result = null;
+			$reference = null;
 			if (oxipay_checksign($params, $this->settings['oxipay_api_key'])) {
 
-				// Get the status of the order from XPay and handle accordingly
-				switch ($params['x_result']) {
+				// Get the status of the order from Oxipay and handle accordingly
+				switch ($result) {
 
 					case "completed":
 						$order->add_order_note(__('Payment approved using ' . OXIPAY_DISPLAYNAME . '. Your Order ID is ' . $order->id, 'woocommerce'));
-						$order->payment_complete($params['x_reference']);
-						if (!is_null($cart)) {
-							$cart->empty_cart();
-						}
+						$order->payment_complete($reference);
 						break;
 
 					case "failed":
@@ -259,8 +251,6 @@ function woocommerce_oxipay_init() {
 						$order->update_status('on-hold');
 						break;
 				}
-
-				return $order_id;
 			}
 			else
 			{
@@ -270,11 +260,44 @@ function woocommerce_oxipay_init() {
 			}
 		}
 
+		function payment_finalisation($order_id)
+		{
+			$order = wc_get_order($order_id);
+			$cart = WC()->session->get('cart', null);
+			$full_url = "http://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]";
+			$parts = parse_url($full_url, PHP_URL_QUERY);
+			parse_str($parts, $params);
+
+		}
+
 		// USAGE:  http://myurl.com/?wc-api=WC_Oxipay_Gateway
 		function oxipay_callback()
 		{
-			throw new \HttpInvalidParamException();
+			$full_url = "http://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]";
+			$parts = parse_url($full_url, PHP_URL_QUERY);
+			parse_str($parts, $params);
+			ksort($params);
+
+			if (oxipay_checksign($params, $this->settings['oxipay_api_key'])) {
+				//our order id is in x_reference
+				$reference = $params['x_reference'];
+				$order = wc_get_order($reference);
+				$result = $params['x_result'];
+
+				update_orderstatus($result, $reference, $order);
+
+				return true;
+			}
+			else
+			{
+				$order->add_order_note(__(OXIPAY_DISPLAYNAME . ' payment response failed signature validation. Please check your Merchant Number and API key or contact Oxipay for assistance.', 0, 'woocommerce'));
+				$order->add_order_note(__('Payment declined using ' . OXIPAY_DISPLAYNAME . '. Your Order ID is ' . $order->id, 'woocommerce'));
+				$order->update_status('failed');
+			}
+
+			return false;
 		}
+
 	}
 }
 
